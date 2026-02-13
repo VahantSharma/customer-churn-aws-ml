@@ -1,0 +1,49 @@
+{
+	"Version": "2012-10-17",
+	"Statement": [
+		{
+			"Action": [
+				"s3:ListBucket",
+				"sagemaker:AddTags",
+				"sagemaker:CreateModelPackageGroup",
+				"sagemaker:CreateModelPackage",
+				"sagemaker:UpdateModelPackage",
+				"sagemaker:DescribeModelPackageGroup"
+			],
+			"Effect": "Allow",
+			"Resource": [
+				"arn:aws:s3:::SageMaker"
+			]
+		},
+		{
+			"Action": [
+				"s3:GetObject",
+				"s3:PutObject",
+				"s3:DeleteObject"
+			],
+			"Effect": "Allow",
+			"Resource": [
+				"arn:aws:s3:::SageMaker/*"
+			]
+		},
+		{
+			"Effect": "Allow",
+			"Action": [
+				"sagemaker-mlflow:*",
+				"sagemaker:CreateMlflowTrackingServer",
+				"sagemaker:ListMlflowTrackingServers",
+				"sagemaker:UpdateMlflowTrackingServer",
+				"sagemaker:DeleteMlflowTrackingServer",
+				"sagemaker:StartMlflowTrackingServer",
+				"sagemaker:StopMlflowTrackingServer",
+				"sagemaker:CreatePresignedMlflowTrackingServerUrl",
+				"sagemaker-mlflow:CreateRun",
+				"sagemaker-mlflow:GetExperimentByName",
+				"sagemaker-mlflow:GetExperiment",
+				"sagemaker-mlflow:CreateExperiment",
+				"sagemaker-mlflow:AccessUI"
+			],
+			"Resource": "*"
+		}
+	]
+}
