@@ -210,4 +210,36 @@ __marimo__/
 model/*
 !model/.gitkeep
 
+# =============================================================================
+# Terraform
+# =============================================================================
+# Local .terraform directories (provider binaries — 400MB+)
+**/.terraform/
+
+# State files (contain sensitive data — account IDs, ARNs, secrets)
+*.tfstate
+*.tfstate.*
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Exclude root-level tfvars (may contain secrets) — keep the example
+# Environment tfvars (dev/staging/prod) are tracked since they contain no secrets
+terraform/*.tfvars
+!terraform/*.tfvars.example
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform CLI config
+.terraformrc
+terraform.rc
+
+# SHAP generated plots
+shap_plots/
+
 .DS_Store
