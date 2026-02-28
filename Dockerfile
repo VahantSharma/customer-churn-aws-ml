@@ -4,7 +4,7 @@
 # Author: Vahant
 
 # Stage 1: Builder
-FROM python:3.9-slim as builder
+FROM python:3.9-slim AS builder
 
 WORKDIR /app
 
@@ -35,6 +35,7 @@ COPY --from=builder /root/.local /home/appuser/.local
 
 # Make sure scripts in .local are usable
 ENV PATH=/home/appuser/.local/bin:$PATH
+ENV PYTHONUSERBASE=/home/appuser/.local
 
 # Copy application code
 COPY src/ ./src/

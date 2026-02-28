@@ -69,7 +69,8 @@ jobs:
       - name: Test image
         run: |
           docker build -t churn-prediction:test .
-          docker run --rm churn-prediction:test python -c "import sklearn; print('OK')"
+          docker run --rm churn-prediction:test python -c "from sklearn.ensemble import RandomForestClassifier; print('sklearn OK')"
+          docker run --rm churn-prediction:test python -c "from src.api import app; print('API OK')"
 
   deploy:
     name: Deploy to SageMaker
