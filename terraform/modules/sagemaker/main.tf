@@ -78,7 +78,6 @@ resource "aws_sagemaker_notebook_instance" "main" {
   name                    = "${local.name_prefix}-notebook"
   role_arn                = var.sagemaker_execution_role_arn
   instance_type           = var.notebook_instance_type
-  platform_identifier     = "notebook-al2-v2"
   volume_size             = var.notebook_volume_size
   direct_internet_access  = var.enable_direct_internet ? "Enabled" : "Disabled"
   kms_key_id              = var.kms_key_arn != "" ? var.kms_key_arn : null

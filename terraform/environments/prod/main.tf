@@ -117,6 +117,7 @@ module "iam" {
   terraform_lock_table_arn   = var.terraform_lock_table_arn
   kms_s3_key_arn             = module.kms.s3_key_arn
   kms_sagemaker_key_arn      = module.kms.sagemaker_key_arn
+  enable_kms_policies        = true
 }
 
 # =============================================================================

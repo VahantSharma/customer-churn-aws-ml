@@ -11,4 +11,4 @@ github_repo  = "VahantSharma/customer-churn-aws-ml"
 
 # Endpoint is disabled by default in dev — enable when ready to test
 deploy_endpoint = false
-alert_email     = ""
+alert_email     = "vahantbuilds@gmail.com"

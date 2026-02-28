@@ -72,6 +72,12 @@ variable "kms_sagemaker_key_arn" {
   default     = ""
 }
 
+variable "enable_kms_policies" {
+  description = "Whether to create KMS IAM policies. Use this instead of checking kms_s3_key_arn so count is known at plan time."
+  type        = bool
+  default     = false
+}
+
 # -----------------------------------------------------------------------------
 # GitHub Actions OIDC
 # -----------------------------------------------------------------------------

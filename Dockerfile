@@ -52,8 +52,7 @@ COPY data/ ./data/
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
-ENV MODEL_PATH=/app/model/best_model_xgboost.joblib
-ENV PREPROCESSOR_PATH=/app/model/preprocessor.joblib
+ENV MODEL_PATH=/app/model/model.joblib
 
 # Change ownership to non-root user
 RUN chown -R appuser:appuser /app

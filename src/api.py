@@ -44,10 +44,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global model and preprocessor (loaded on startup)
+# Global model (Pipeline: preprocessor + model, loaded on startup)
 model = None
-preprocessor = None
-feature_names = None
 
 
 # Pydantic models for request/response validation
@@ -144,15 +142,12 @@ class ExplainabilityResponse(BaseModel):
 # Startup event - load model
 @app.on_event("startup")
 async def load_model():
-    """Load model and preprocessor on startup"""
-    global model, preprocessor
+    """Load trained Pipeline model on startup"""
+    global model
 
     model_path = os.environ.get(
         'MODEL_PATH',
-        'model/best_model_xgboost.joblib')
-    preprocessor_path = os.environ.get(
-        'PREPROCESSOR_PATH',
-        'model/preprocessor.joblib')
+        'model/model.joblib')
 
     try:
         if os.path.exists(model_path):
@@ -160,21 +155,34 @@ async def load_model():
             logger.info(f"Model loaded from {model_path}")
         else:
             logger.warning(f"Model not found at {model_path}")
-
-        if os.path.exists(preprocessor_path):
-            preprocessor = joblib.load(preprocessor_path)
-            logger.info(f"Preprocessor loaded from {preprocessor_path}")
-        else:
-            logger.warning(f"Preprocessor not found at {preprocessor_path}")
-
     except Exception as e:
         logger.error(f"Error loading model: {e}")
 
 
 # Helper functions
-def preprocess_input(customer: CustomerFeatures) -> np.ndarray:
-    """Convert customer features to model input format"""
-    # Create DataFrame with correct column names
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add engineered features matching train_model.py exactly."""
+    df = df.copy()
+    df["spend_per_tenure"]    = df["Total Spend"] / (df["Tenure"] + 1)
+    df["support_per_tenure"]  = df["Support Calls"] / (df["Tenure"] + 1)
+    df["usage_per_tenure"]    = df["Usage Frequency"] / (df["Tenure"] + 1)
+    df["delay_per_tenure"]    = df["Payment Delay"] / (df["Tenure"] + 1)
+    df["cost_per_usage"]      = df["Total Spend"] / (df["Usage Frequency"] + 1)
+    df["recency_score"]       = 1.0 / (df["Last Interaction"] + 1)
+    df["risk_score"]          = (df["Support Calls"] * df["Payment Delay"]) / (df["Total Spend"] + 1)
+    df["frustration_index"]   = df["Support Calls"] * df["Payment Delay"] * (1.0 / (df["Usage Frequency"] + 1))
+    df["is_high_support"]     = (df["Support Calls"] >= 5).astype(int)
+    df["is_payment_late"]     = (df["Payment Delay"] >= 15).astype(int)
+    df["is_low_usage"]        = (df["Usage Frequency"] <= 5).astype(int)
+    df["is_new_customer"]     = (df["Tenure"] <= 6).astype(int)
+    df["is_long_tenure"]      = (df["Tenure"] >= 36).astype(int)
+    df["tenure_bucket"]       = pd.cut(df["Tenure"], bins=[0, 6, 12, 24, 48, 200], labels=[0, 1, 2, 3, 4]).astype(int)
+    df["age_group"]           = pd.cut(df["Age"], bins=[0, 25, 35, 45, 55, 100], labels=[0, 1, 2, 3, 4]).astype(int)
+    return df
+
+
+def preprocess_input(customer: CustomerFeatures) -> pd.DataFrame:
+    """Convert customer features to model input DataFrame with engineered features."""
     data = {
         'Age': customer.Age,
         'Tenure': customer.Tenure,
@@ -187,15 +195,9 @@ def preprocess_input(customer: CustomerFeatures) -> np.ndarray:
         'Subscription Type': customer.Subscription_Type,
         'Contract Length': customer.Contract_Length
     }
-
     df = pd.DataFrame([data])
-
-    if preprocessor is not None:
-        return preprocessor.transform(df)
-    else:
-        # Basic preprocessing if no preprocessor loaded
-        # (for testing without full model)
-        return df.values
+    df = engineer_features(df)
+    return df
 
 
 def get_risk_level(probability: float) -> str:

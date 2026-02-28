@@ -298,7 +298,7 @@ resource "aws_iam_policy" "sagemaker_ecr" {
 
 # KMS — for decrypting/encrypting data with customer-managed keys
 resource "aws_iam_policy" "sagemaker_kms" {
-  count = var.kms_s3_key_arn != "" ? 1 : 0
+  count = var.enable_kms_policies ? 1 : 0
 
   name = "${local.name_prefix}-sagemaker-kms"
   path = "/project/${var.project_name}/"
@@ -362,7 +362,7 @@ resource "aws_iam_role_policy_attachment" "sagemaker_ecr" {
 }
 
 resource "aws_iam_role_policy_attachment" "sagemaker_kms" {
-  count = var.kms_s3_key_arn != "" ? 1 : 0
+  count = var.enable_kms_policies ? 1 : 0
 
   role       = aws_iam_role.sagemaker_execution.name
   policy_arn = aws_iam_policy.sagemaker_kms[0].arn
@@ -426,94 +426,100 @@ resource "aws_iam_policy" "cicd" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "S3Access"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket",
-          "s3:DeleteObject"
-        ]
-        Resource = [
-          var.data_bucket_arn,
-          "${var.data_bucket_arn}/*",
-          var.model_bucket_arn,
-          "${var.model_bucket_arn}/*"
-        ]
-      },
-      {
-        Sid    = "ECRAccess"
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken",
-          "ecr:BatchCheckLayerAvailability",
-          "ecr:GetDownloadUrlForLayer",
-          "ecr:BatchGetImage",
-          "ecr:PutImage",
-          "ecr:InitiateLayerUpload",
-          "ecr:UploadLayerPart",
-          "ecr:CompleteLayerUpload"
-        ]
-        Resource = var.ecr_repository_arn != "" ? [var.ecr_repository_arn, "*"] : ["*"]
-      },
-      {
-        Sid    = "SageMakerDeploy"
-        Effect = "Allow"
-        Action = [
-          "sagemaker:CreateModel",
-          "sagemaker:CreateEndpointConfig",
-          "sagemaker:CreateEndpoint",
-          "sagemaker:UpdateEndpoint",
-          "sagemaker:DescribeEndpoint",
-          "sagemaker:DescribeEndpointConfig",
-          "sagemaker:DeleteEndpoint",
-          "sagemaker:DeleteEndpointConfig",
-          "sagemaker:DeleteModel",
-          "sagemaker:InvokeEndpoint",
-          "sagemaker:CreateModelPackage",
-          "sagemaker:UpdateModelPackage"
-        ]
-        Resource = [
-          "${local.sagemaker_arn_prefix}:*"
-        ]
-      },
-      {
-        Sid    = "PassSageMakerRole"
-        Effect = "Allow"
-        Action = "iam:PassRole"
-        Resource = aws_iam_role.sagemaker_execution.arn
-        Condition = {
-          StringEquals = {
-            "iam:PassedToService" = "sagemaker.amazonaws.com"
+    Statement = concat(
+      [
+        {
+          Sid    = "S3Access"
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:ListBucket",
+            "s3:DeleteObject"
+          ]
+          Resource = [
+            var.data_bucket_arn,
+            "${var.data_bucket_arn}/*",
+            var.model_bucket_arn,
+            "${var.model_bucket_arn}/*"
+          ]
+        },
+        {
+          Sid    = "ECRAccess"
+          Effect = "Allow"
+          Action = [
+            "ecr:GetAuthorizationToken",
+            "ecr:BatchCheckLayerAvailability",
+            "ecr:GetDownloadUrlForLayer",
+            "ecr:BatchGetImage",
+            "ecr:PutImage",
+            "ecr:InitiateLayerUpload",
+            "ecr:UploadLayerPart",
+            "ecr:CompleteLayerUpload"
+          ]
+          Resource = var.ecr_repository_arn != "" ? [var.ecr_repository_arn, "*"] : ["*"]
+        },
+        {
+          Sid    = "SageMakerDeploy"
+          Effect = "Allow"
+          Action = [
+            "sagemaker:CreateModel",
+            "sagemaker:CreateEndpointConfig",
+            "sagemaker:CreateEndpoint",
+            "sagemaker:UpdateEndpoint",
+            "sagemaker:DescribeEndpoint",
+            "sagemaker:DescribeEndpointConfig",
+            "sagemaker:DeleteEndpoint",
+            "sagemaker:DeleteEndpointConfig",
+            "sagemaker:DeleteModel",
+            "sagemaker:InvokeEndpoint",
+            "sagemaker:CreateModelPackage",
+            "sagemaker:UpdateModelPackage"
+          ]
+          Resource = [
+            "${local.sagemaker_arn_prefix}:*"
+          ]
+        },
+        {
+          Sid    = "PassSageMakerRole"
+          Effect = "Allow"
+          Action = "iam:PassRole"
+          Resource = aws_iam_role.sagemaker_execution.arn
+          Condition = {
+            StringEquals = {
+              "iam:PassedToService" = "sagemaker.amazonaws.com"
+            }
           }
         }
-      },
-      {
-        Sid    = "TerraformState"
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          var.terraform_state_bucket_arn,
-          "${var.terraform_state_bucket_arn}/*"
-        ]
-      },
-      {
-        Sid    = "TerraformLock"
-        Effect = "Allow"
-        Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:DeleteItem"
-        ]
-        Resource = var.terraform_lock_table_arn
-      }
-    ]
+      ],
+      var.terraform_state_bucket_arn != "" ? [
+        {
+          Sid    = "TerraformState"
+          Effect = "Allow"
+          Action = [
+            "s3:GetObject",
+            "s3:PutObject",
+            "s3:ListBucket"
+          ]
+          Resource = [
+            var.terraform_state_bucket_arn,
+            "${var.terraform_state_bucket_arn}/*"
+          ]
+        }
+      ] : [],
+      var.terraform_lock_table_arn != "" ? [
+        {
+          Sid    = "TerraformLock"
+          Effect = "Allow"
+          Action = [
+            "dynamodb:GetItem",
+            "dynamodb:PutItem",
+            "dynamodb:DeleteItem"
+          ]
+          Resource = var.terraform_lock_table_arn
+        }
+      ] : []
+    )
   })
 
   tags = local.common_tags
@@ -521,7 +527,7 @@ resource "aws_iam_policy" "cicd" {
 
 # KMS policy for CI/CD role — needed for S3 encrypted object access
 resource "aws_iam_policy" "cicd_kms" {
-  count = var.kms_s3_key_arn != "" ? 1 : 0
+  count = var.enable_kms_policies ? 1 : 0
 
   name = "${local.name_prefix}-cicd-kms"
   path = "/project/${var.project_name}/"
@@ -554,7 +560,7 @@ resource "aws_iam_role_policy_attachment" "cicd" {
 }
 
 resource "aws_iam_role_policy_attachment" "cicd_kms" {
-  count = var.kms_s3_key_arn != "" ? 1 : 0
+  count = var.enable_kms_policies ? 1 : 0
 
   role       = aws_iam_role.cicd.name
   policy_arn = aws_iam_policy.cicd_kms[0].arn
