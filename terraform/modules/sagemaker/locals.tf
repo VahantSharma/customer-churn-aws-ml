@@ -1,0 +1,14 @@
+# =============================================================================
+# SageMaker Module — Local Values
+# =============================================================================
+
+locals {
+  name_prefix = "${var.project_name}-${var.environment}"
+
+  common_tags = {
+    Module      = "sagemaker"
+    Project     = var.project_name
+    Environment = var.environment
+    ManagedBy   = "terraform"
+  }
+}
