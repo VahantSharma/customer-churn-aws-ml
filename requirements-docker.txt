@@ -1,0 +1,19 @@
+# =============================================================================
+# Docker Runtime Requirements for Customer Churn Prediction API
+# =============================================================================
+# This file contains ONLY what the FastAPI prediction API needs to run.
+# Intentionally minimal — no training/experiment/notebook dependencies.
+#
+# Why not requirements.txt?
+#   requirements.txt includes sagemaker>=2.100.0, which pulls in PyTorch
+#   and ~4.7GB of NVIDIA CUDA libraries. None of that is needed to serve
+#   predictions. Using this file keeps the Docker image under 500MB
+#   instead of 5-6GB.
+# =============================================================================
+
+# Core ML (for model loading and prediction)
+pandas>=1.3.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+joblib>=1.0.0
+xgboost>=1.6.0

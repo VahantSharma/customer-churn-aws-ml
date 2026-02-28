@@ -15,11 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
-COPY requirements.txt .
+# NOTE: We use requirements-docker.txt (not requirements.txt) to avoid
+# pulling PyTorch + 4.7GB of NVIDIA CUDA libraries that the API doesn't need.
+COPY requirements-docker.txt .
 COPY requirements-api.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --user -r requirements.txt
+RUN pip install --no-cache-dir --user -r requirements-docker.txt
 RUN pip install --no-cache-dir --user -r requirements-api.txt
 
 # Stage 2: Production
@@ -31,10 +33,16 @@ WORKDIR /app
 RUN useradd --create-home --shell /bin/bash appuser
 
 # Copy installed packages from builder
-COPY --from=builder /root/.local /home/appuser/.local
+# --chown ensures appuser owns the files (without it, they're owned by root
+# and Python may fail to read .pth files or execute scripts)
+COPY --from=builder --chown=appuser:appuser /root/.local /home/appuser/.local
 
 # Make sure scripts in .local are usable
 ENV PATH=/home/appuser/.local/bin:$PATH
+# PYTHONPATH directly tells Python where to find installed packages.
+# PYTHONUSERBASE alone is NOT sufficient — it only tells pip where to install,
+# but Python's site module may not add the directory to sys.path in Docker.
+ENV PYTHONPATH=/home/appuser/.local/lib/python3.9/site-packages
 ENV PYTHONUSERBASE=/home/appuser/.local
 
 # Copy application code

@@ -61,14 +61,15 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          load: true
           push: false
-          tags: churn-prediction:${{ github.sha }}
+          tags: churn-prediction:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Test image
         run: |
-          docker build -t churn-prediction:test .
+          docker run --rm churn-prediction:test python -c "import sys; print(sys.path)"
           docker run --rm churn-prediction:test python -c "from sklearn.ensemble import RandomForestClassifier; print('sklearn OK')"
           docker run --rm churn-prediction:test python -c "from src.api import app; print('API OK')"
 

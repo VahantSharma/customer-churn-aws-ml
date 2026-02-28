@@ -1,0 +1,64 @@
+# =============================================================================
+# .dockerignore — Exclude files from Docker build context
+# =============================================================================
+# Without this, Docker sends .git/, venv/, terraform/, etc. to the daemon,
+# wasting time and potentially leaking sensitive files.
+
+# Version control
+.git
+.gitignore
+
+# CI/CD workflows
+.github
+
+# Python caches
+__pycache__
+*.py[cod]
+*.pyo
+.pytest_cache
+*.egg-info
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# Terraform infrastructure
+terraform/
+
+# SageMaker training scripts (not needed for API serving)
+sagemaker/
+
+# Interview materials
+interview/
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints
+
+# Documentation
+*.md
+LICENSE
+
+# Build/config files
+Makefile
+setup.py
+
+# Policy/config JSON files
+*.json
+
+# SHAP plots
+shap_plots/
+generate_shap_plots.py
+
+# Full/dev requirements (Docker uses requirements-docker.txt + requirements-api.txt)
+requirements.txt
+requirements-minimal.txt
+
+# OS files
+.DS_Store
+Thumbs.db
