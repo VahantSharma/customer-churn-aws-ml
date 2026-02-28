@@ -36,7 +36,7 @@ output "model_package_group_arn" {
 
 output "endpoint_name" {
   description = "Name of the SageMaker inference endpoint"
-  value       = var.deploy_endpoint ? aws_sagemaker_endpoint.main[0].name : null
+  value       = var.deploy_endpoint ? aws_sagemaker_endpoint.main[0].name : ""
 }
 
 output "endpoint_arn" {

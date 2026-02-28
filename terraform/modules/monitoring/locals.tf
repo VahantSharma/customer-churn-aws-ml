@@ -13,7 +13,7 @@ locals {
   }
 
   # Whether endpoint-dependent resources should be created
-  has_endpoint = var.endpoint_name != ""
+  has_endpoint = var.endpoint_name != null && var.endpoint_name != ""
 
   # Whether alarms should be created (requires both flag and endpoint)
   create_alarms = var.enable_alarms && local.has_endpoint

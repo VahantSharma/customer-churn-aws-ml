@@ -62,6 +62,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "access_logs" {
     id     = "expire-old-logs"
     status = "Enabled"
 
+    filter {}
+
     transition {
       days          = 30
       storage_class = "STANDARD_IA"

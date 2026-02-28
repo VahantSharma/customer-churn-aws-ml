@@ -248,7 +248,7 @@ resource "aws_appautoscaling_policy" "sagemaker_target_tracking" {
 
 # Scheduled scaling — scale down during off-hours (cost optimization)
 resource "aws_appautoscaling_scheduled_action" "scale_down_night" {
-  count = var.deploy_endpoint && var.enable_scheduled_scaling ? 1 : 0
+  count = var.deploy_endpoint && var.enable_auto_scaling && var.enable_scheduled_scaling ? 1 : 0
 
   name               = "${local.name_prefix}-scale-down-night"
   service_namespace  = aws_appautoscaling_target.sagemaker[0].service_namespace
@@ -264,7 +264,7 @@ resource "aws_appautoscaling_scheduled_action" "scale_down_night" {
 }
 
 resource "aws_appautoscaling_scheduled_action" "scale_up_morning" {
-  count = var.deploy_endpoint && var.enable_scheduled_scaling ? 1 : 0
+  count = var.deploy_endpoint && var.enable_auto_scaling && var.enable_scheduled_scaling ? 1 : 0
 
   name               = "${local.name_prefix}-scale-up-morning"
   service_namespace  = aws_appautoscaling_target.sagemaker[0].service_namespace
