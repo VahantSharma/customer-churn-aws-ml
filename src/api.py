@@ -1,12 +1,17 @@
 """
-FastAPI REST API for Customer Churn Prediction
+FastAPI REST API for Customer Churn Prediction (v2 — Hybrid)
 
 Production-ready API with:
+- Hybrid prediction: Rules Engine + ML Model
 - Health checks
 - Batch predictions
 - Model explainability endpoint
 - Request validation
-- Rate limiting ready
+
+The v2 pipeline addresses the synthetic data issue:
+  - 49.6% of rows follow deterministic rules (100% churn) → handled by Rules Engine
+  - 50.4% of rows are ambiguous (14.2% churn) → handled by ML Model
+  - Combined: Hybrid predictor gives honest, transparent predictions
 
 Author: Vahant
 """
@@ -18,6 +23,7 @@ from typing import List, Dict, Optional
 import numpy as np
 import pandas as pd
 import joblib
+import json
 import logging
 from datetime import datetime
 import os
@@ -29,10 +35,13 @@ logger = logging.getLogger(__name__)
 # Initialize FastAPI app
 app = FastAPI(
     title="Customer Churn Prediction API",
-    description="ML-powered customer churn prediction with explainability",
-    version="2.0.0",
+    description=(
+        "ML-powered customer churn prediction with hybrid approach: "
+        "Rules Engine for deterministic cases + ML Model for ambiguous cases"
+    ),
+    version="3.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
 )
 
 # CORS middleware
@@ -44,8 +53,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global model (Pipeline: preprocessor + model, loaded on startup)
-model = None
+# Global state
+ml_pipeline = None       # sklearn Pipeline for ambiguous cases
+metrics_info = None       # Loaded metrics.json
+SPEND_THRESHOLD = 405.0   # Q20 of Total Spend (from training)
 
 
 # Pydantic models for request/response validation
@@ -107,6 +118,7 @@ class PredictionResponse(BaseModel):
     churn_probability: float
     retention_probability: float
     risk_level: str
+    prediction_source: str = "ml"  # "rules" or "ml"
     timestamp: str
 
 
@@ -126,6 +138,7 @@ class HealthResponse(BaseModel):
     """Health check response"""
     status: str
     model_loaded: bool
+    approach: str
     version: str
     timestamp: str
 
@@ -142,62 +155,110 @@ class ExplainabilityResponse(BaseModel):
 # Startup event - load model
 @app.on_event("startup")
 async def load_model():
-    """Load trained Pipeline model on startup"""
-    global model
+    """Load trained ML Pipeline and metrics on startup."""
+    global ml_pipeline, metrics_info, SPEND_THRESHOLD
 
-    model_path = os.environ.get(
-        'MODEL_PATH',
-        'model/model.joblib')
+    model_path = os.environ.get("MODEL_PATH", "model/model.joblib")
+    metrics_path = os.environ.get("METRICS_PATH", "model/metrics.json")
 
     try:
         if os.path.exists(model_path):
-            model = joblib.load(model_path)
-            logger.info(f"Model loaded from {model_path}")
+            ml_pipeline = joblib.load(model_path)
+            logger.info(f"ML Pipeline loaded from {model_path}")
         else:
             logger.warning(f"Model not found at {model_path}")
+
+        if os.path.exists(metrics_path):
+            with open(metrics_path) as f:
+                metrics_info = json.load(f)
+            logger.info(f"Metrics loaded from {metrics_path}")
     except Exception as e:
         logger.error(f"Error loading model: {e}")
 
 
-# Helper functions
+# ---------- Rules Engine (inline — matches train_model_v2.py) ----------
+def check_deterministic_churn(row: dict) -> bool:
+    """Check if a customer matches any deterministic churn rule.
+
+    Rules (from synthetic data analysis):
+      1. Support Calls >= 6
+      2. Contract Length == Monthly
+      3. Payment Delay > 20
+      4. Total Spend <= SPEND_THRESHOLD (Q20 ≈ 405)
+    """
+    if row.get("Support Calls", 0) >= 6:
+        return True
+    if row.get("Contract Length", "") == "Monthly":
+        return True
+    if row.get("Payment Delay", 0) > 20:
+        return True
+    if row.get("Total Spend", 9999) <= SPEND_THRESHOLD:
+        return True
+    return False
+
+
+# ---------- Feature engineering (matches train_model_v2.py) ----------
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Add engineered features matching train_model.py exactly."""
+    """Add engineered features matching train_model_v2.py (conservative).
+
+    Removed from v1: risk_score, frustration_index, recency_score,
+    support_per_tenure, delay_per_tenure, is_high_support, is_payment_late,
+    is_low_usage.
+    """
     df = df.copy()
-    df["spend_per_tenure"]    = df["Total Spend"] / (df["Tenure"] + 1)
-    df["support_per_tenure"]  = df["Support Calls"] / (df["Tenure"] + 1)
-    df["usage_per_tenure"]    = df["Usage Frequency"] / (df["Tenure"] + 1)
-    df["delay_per_tenure"]    = df["Payment Delay"] / (df["Tenure"] + 1)
-    df["cost_per_usage"]      = df["Total Spend"] / (df["Usage Frequency"] + 1)
-    df["recency_score"]       = 1.0 / (df["Last Interaction"] + 1)
-    df["risk_score"]          = (df["Support Calls"] * df["Payment Delay"]) / (df["Total Spend"] + 1)
-    df["frustration_index"]   = df["Support Calls"] * df["Payment Delay"] * (1.0 / (df["Usage Frequency"] + 1))
-    df["is_high_support"]     = (df["Support Calls"] >= 5).astype(int)
-    df["is_payment_late"]     = (df["Payment Delay"] >= 15).astype(int)
-    df["is_low_usage"]        = (df["Usage Frequency"] <= 5).astype(int)
-    df["is_new_customer"]     = (df["Tenure"] <= 6).astype(int)
-    df["is_long_tenure"]      = (df["Tenure"] >= 36).astype(int)
-    df["tenure_bucket"]       = pd.cut(df["Tenure"], bins=[0, 6, 12, 24, 48, 200], labels=[0, 1, 2, 3, 4]).astype(int)
-    df["age_group"]           = pd.cut(df["Age"], bins=[0, 25, 35, 45, 55, 100], labels=[0, 1, 2, 3, 4]).astype(int)
+    df["spend_per_tenure"] = df["Total Spend"] / (df["Tenure"] + 1)
+    df["usage_per_tenure"] = df["Usage Frequency"] / (df["Tenure"] + 1)
+    df["cost_per_usage"]   = df["Total Spend"] / (df["Usage Frequency"] + 1)
+    df["age_tenure_ratio"] = df["Age"] / (df["Tenure"] + 1)
+    df["is_new_customer"]  = (df["Tenure"] <= 6).astype(int)
+    df["is_long_tenure"]   = (df["Tenure"] >= 40).astype(int)
+    df["is_senior"]        = (df["Age"] >= 50).astype(int)
+    df["tenure_bucket"] = pd.cut(
+        df["Tenure"], bins=[0, 6, 12, 24, 36, 61],
+        labels=[0, 1, 2, 3, 4], include_lowest=True,
+    ).astype(float)
+    df["age_group"] = pd.cut(
+        df["Age"], bins=[0, 25, 35, 45, 55, 100],
+        labels=[0, 1, 2, 3, 4], include_lowest=True,
+    ).astype(float)
     return df
 
 
-def preprocess_input(customer: CustomerFeatures) -> pd.DataFrame:
-    """Convert customer features to model input DataFrame with engineered features."""
-    data = {
-        'Age': customer.Age,
-        'Tenure': customer.Tenure,
-        'Usage Frequency': customer.Usage_Frequency,
-        'Support Calls': customer.Support_Calls,
-        'Payment Delay': customer.Payment_Delay,
-        'Total Spend': customer.Total_Spend,
-        'Last Interaction': customer.Last_Interaction,
-        'Gender': customer.Gender,
-        'Subscription Type': customer.Subscription_Type,
-        'Contract Length': customer.Contract_Length
+def preprocess_input(customer: CustomerFeatures) -> dict:
+    """Convert customer features to a raw dict and engineered DataFrame."""
+    raw = {
+        "Age": customer.Age,
+        "Tenure": customer.Tenure,
+        "Usage Frequency": customer.Usage_Frequency,
+        "Support Calls": customer.Support_Calls,
+        "Payment Delay": customer.Payment_Delay,
+        "Total Spend": customer.Total_Spend,
+        "Last Interaction": customer.Last_Interaction,
+        "Gender": customer.Gender,
+        "Subscription Type": customer.Subscription_Type,
+        "Contract Length": customer.Contract_Length,
     }
-    df = pd.DataFrame([data])
+    return raw
+
+
+def predict_single_customer(raw: dict) -> tuple:
+    """Hybrid prediction: rules first, then ML.
+
+    Returns (prediction, churn_probability, source).
+    """
+    # Phase 1: Check deterministic rules
+    if check_deterministic_churn(raw):
+        return 1, 1.0, "rules"
+
+    # Phase 2: ML model for ambiguous cases
+    if ml_pipeline is None:
+        raise RuntimeError("ML model not loaded")
+
+    df = pd.DataFrame([raw])
     df = engineer_features(df)
-    return df
+    prediction = int(ml_pipeline.predict(df)[0])
+    churn_prob = float(ml_pipeline.predict_proba(df)[0, 1])
+    return prediction, churn_prob, "ml"
 
 
 def get_risk_level(probability: float) -> str:
@@ -216,9 +277,10 @@ async def root():
     """Root endpoint with API info"""
     return {
         "name": "Customer Churn Prediction API",
-        "version": "2.0.0",
+        "version": "3.0.0",
+        "approach": "Hybrid (Rules Engine + ML Model)",
         "documentation": "/docs",
-        "health": "/health"
+        "health": "/health",
     }
 
 
@@ -226,10 +288,11 @@ async def root():
 async def health_check():
     """Health check endpoint"""
     return HealthResponse(
-        status="healthy" if model is not None else "degraded",
-        model_loaded=model is not None,
-        version="2.0.0",
-        timestamp=datetime.now().isoformat()
+        status="healthy" if ml_pipeline is not None else "degraded",
+        model_loaded=ml_pipeline is not None,
+        approach="hybrid",
+        version="3.0.0",
+        timestamp=datetime.now().isoformat(),
     )
 
 
@@ -238,31 +301,28 @@ async def predict_single(customer: CustomerFeatures):
     """
     Predict churn for a single customer.
 
-    Returns prediction, probability, and risk level.
+    Uses hybrid approach:
+    - Rules Engine checks deterministic patterns first (100% churn)
+    - ML Model handles ambiguous cases
     """
-    if model is None:
+    if ml_pipeline is None:
         raise HTTPException(
             status_code=503,
-            detail="Model not loaded. Service unavailable."
+            detail="Model not loaded. Service unavailable.",
         )
 
     try:
-        # Preprocess
-        X = preprocess_input(customer)
-
-        # Predict
-        prediction = model.predict(X)[0]
-        probabilities = model.predict_proba(X)[0]
-
-        churn_prob = float(probabilities[1])
-        retention_prob = float(probabilities[0])
+        raw = preprocess_input(customer)
+        prediction, churn_prob, source = predict_single_customer(raw)
+        retention_prob = 1.0 - churn_prob
 
         return PredictionResponse(
-            churn_prediction=int(prediction),
+            churn_prediction=prediction,
             churn_probability=round(churn_prob, 4),
             retention_probability=round(retention_prob, 4),
             risk_level=get_risk_level(churn_prob),
-            timestamp=datetime.now().isoformat()
+            prediction_source=source,
+            timestamp=datetime.now().isoformat(),
         )
 
     except Exception as e:
@@ -273,14 +333,12 @@ async def predict_single(customer: CustomerFeatures):
 @app.post("/predict/batch", response_model=BatchPredictionResponse)
 async def predict_batch(request: BatchPredictionRequest):
     """
-    Predict churn for multiple customers.
-
-    More efficient than multiple single predictions.
+    Predict churn for multiple customers using hybrid approach.
     """
-    if model is None:
+    if ml_pipeline is None:
         raise HTTPException(
             status_code=503,
-            detail="Model not loaded. Service unavailable."
+            detail="Model not loaded. Service unavailable.",
         )
 
     start_time = datetime.now()
@@ -289,24 +347,22 @@ async def predict_batch(request: BatchPredictionRequest):
         predictions = []
 
         for i, customer in enumerate(request.customers):
-            X = preprocess_input(customer)
-            pred = model.predict(X)[0]
-            probs = model.predict_proba(X)[0]
-
-            churn_prob = float(probs[1])
+            raw = preprocess_input(customer)
+            pred, churn_prob, source = predict_single_customer(raw)
 
             predictions.append(PredictionResponse(
                 customer_id=f"customer_{i}",
-                churn_prediction=int(pred),
+                churn_prediction=pred,
                 churn_probability=round(churn_prob, 4),
-                retention_probability=round(float(probs[0]), 4),
+                retention_probability=round(1.0 - churn_prob, 4),
                 risk_level=get_risk_level(churn_prob),
-                timestamp=datetime.now().isoformat()
+                prediction_source=source,
+                timestamp=datetime.now().isoformat(),
             ))
 
-        # Calculate summary
         churn_count = sum(1 for p in predictions if p.churn_prediction == 1)
-        high_risk_count = sum(1 for p in predictions if p.risk_level == "HIGH")
+        rules_count = sum(1 for p in predictions if p.prediction_source == "rules")
+        high_risk = sum(1 for p in predictions if p.risk_level == "HIGH")
 
         processing_time = (datetime.now() - start_time).total_seconds() * 1000
 
@@ -315,12 +371,14 @@ async def predict_batch(request: BatchPredictionRequest):
             summary={
                 "total_customers": len(predictions),
                 "predicted_churners": churn_count,
-                "churn_rate": round(churn_count / len(predictions), 4),
-                "high_risk_count": high_risk_count,
+                "churn_rate": round(churn_count / max(len(predictions), 1), 4),
+                "rules_engine_matches": rules_count,
+                "ml_model_predictions": len(predictions) - rules_count,
+                "high_risk_count": high_risk,
                 "medium_risk_count": sum(1 for p in predictions if p.risk_level == "MEDIUM"),
-                "low_risk_count": sum(1 for p in predictions if p.risk_level == "LOW")
+                "low_risk_count": sum(1 for p in predictions if p.risk_level == "LOW"),
             },
-            processing_time_ms=round(processing_time, 2)
+            processing_time_ms=round(processing_time, 2),
         )
 
     except Exception as e:
@@ -333,77 +391,112 @@ async def explain_prediction(customer: CustomerFeatures):
     """
     Get explainable prediction with feature contributions.
 
-    Uses SHAP-style explanation (simplified version).
+    For rules-engine matches, explains which deterministic rule fired.
+    For ML predictions, shows approximate feature contributions.
     """
-    if model is None:
+    if ml_pipeline is None:
         raise HTTPException(
             status_code=503,
-            detail="Model not loaded. Service unavailable."
+            detail="Model not loaded. Service unavailable.",
         )
 
     try:
-        X = preprocess_input(customer)
+        raw = preprocess_input(customer)
+        prediction, churn_prob, source = predict_single_customer(raw)
 
-        prediction = model.predict(X)[0]
-        probabilities = model.predict_proba(X)[0]
-        churn_prob = float(probabilities[1])
+        # If a deterministic rule fired, explain which one
+        if source == "rules":
+            fired_rules = []
+            if raw["Support Calls"] >= 6:
+                fired_rules.append({
+                    "feature": "Support Calls",
+                    "value": raw["Support Calls"],
+                    "contribution": 1.0,
+                    "rule": "Support Calls >= 6 → 100% churn in training data",
+                })
+            if raw["Contract Length"] == "Monthly":
+                fired_rules.append({
+                    "feature": "Contract Length",
+                    "value": raw["Contract Length"],
+                    "contribution": 1.0,
+                    "rule": "Monthly contract → 100% churn in training data",
+                })
+            if raw["Payment Delay"] > 20:
+                fired_rules.append({
+                    "feature": "Payment Delay",
+                    "value": raw["Payment Delay"],
+                    "contribution": 1.0,
+                    "rule": "Payment Delay > 20 → 100% churn in training data",
+                })
+            if raw["Total Spend"] <= SPEND_THRESHOLD:
+                fired_rules.append({
+                    "feature": "Total Spend",
+                    "value": raw["Total Spend"],
+                    "contribution": 1.0,
+                    "rule": f"Total Spend <= {SPEND_THRESHOLD} → 100% churn in training data",
+                })
 
-        # Get feature importance (for tree-based models)
-        if hasattr(model, 'feature_importances_'):
-            importances = model.feature_importances_
-        else:
-            # Fallback: use coefficients for linear models
-            importances = np.abs(
-                model.coef_[0]) if hasattr(
-                model,
-                'coef_') else np.zeros(
-                X.shape[1])
+            text = (
+                f"DETERMINISTIC CHURN (probability=100%). "
+                f"This customer matches {len(fired_rules)} rule(s): "
+                + ", ".join(r["rule"] for r in fired_rules)
+            )
 
-        # Create feature contribution approximation
-        feature_contrib = X.flatten() * importances[:len(X.flatten())]
+            return ExplainabilityResponse(
+                prediction=1,
+                probability=1.0,
+                top_churn_factors=fired_rules,
+                top_retention_factors=[],
+                explanation_text=text,
+            )
 
-        # Map to feature names (simplified)
-        feature_names_local = [
-            'Age', 'Tenure', 'Usage Frequency', 'Support Calls',
-            'Payment Delay', 'Total Spend', 'Last Interaction',
-            'Gender_Male', 'Subscription_Standard', 'Subscription_Premium',
-            'Contract_Quarterly', 'Contract_Annual'
-        ]
+        # ML prediction — use feature importance from CSV if available
+        feature_imp_path = os.environ.get(
+            "FEATURE_IMPORTANCE_PATH", "model/feature_importance.csv"
+        )
+        importance_map = {}
+        if os.path.exists(feature_imp_path):
+            imp_df = pd.read_csv(feature_imp_path)
+            importance_map = dict(zip(imp_df["feature"], imp_df["importance"]))
 
-        # Create contribution dict
+        # Build contribution approximation
+        df = pd.DataFrame([raw])
+        df = engineer_features(df)
+        feature_names = list(df.columns)
+
         contributions = []
-        for i, (name, contrib) in enumerate(
-                zip(feature_names_local[:len(feature_contrib)], feature_contrib)):
+        for name in feature_names:
+            val = float(df[name].iloc[0]) if pd.api.types.is_numeric_dtype(df[name]) else 0
+            imp = importance_map.get(name, 0.01)
             contributions.append({
-                'feature': name,
-                'value': float(X.flatten()[i]),
-                'contribution': float(contrib)
+                "feature": name,
+                "value": df[name].iloc[0] if pd.api.types.is_numeric_dtype(df[name]) else str(df[name].iloc[0]),
+                "contribution": float(val * imp),
             })
 
-        # Sort by absolute contribution
-        contributions.sort(key=lambda x: abs(x['contribution']), reverse=True)
+        contributions.sort(key=lambda x: abs(x["contribution"]), reverse=True)
+        churn_factors = [c for c in contributions if c["contribution"] > 0][:5]
+        retention_factors = [c for c in contributions if c["contribution"] <= 0][:5]
 
-        # Split into positive and negative
-        churn_factors = [c for c in contributions if c['contribution'] > 0][:5]
-        retention_factors = [
-            c for c in contributions if c['contribution'] <= 0][:5]
-
-        # Generate explanation text
         if prediction == 1:
-            text = f"This customer has a {churn_prob:.1%} probability of churning. "
-            text += "Main risk factors: "
-            text += ", ".join([f"{c['feature']}" for c in churn_factors[:3]])
+            text = (
+                f"This customer has a {churn_prob:.1%} probability of churning "
+                f"(ML model prediction). Main risk factors: "
+                + ", ".join(c["feature"] for c in churn_factors[:3])
+            )
         else:
-            text = f"This customer is likely to stay (retention probability: {1-churn_prob:.1%}). "
-            text += "Positive factors: "
-            text += ", ".join([f"{c['feature']}" for c in retention_factors[:3]])
+            text = (
+                f"This customer is likely to stay (retention: {1-churn_prob:.1%}). "
+                f"Positive factors: "
+                + ", ".join(c["feature"] for c in retention_factors[:3])
+            )
 
         return ExplainabilityResponse(
             prediction=int(prediction),
             probability=round(churn_prob, 4),
             top_churn_factors=churn_factors,
             top_retention_factors=retention_factors,
-            explanation_text=text
+            explanation_text=text,
         )
 
     except Exception as e:
@@ -413,24 +506,33 @@ async def explain_prediction(customer: CustomerFeatures):
 
 @app.get("/model/info")
 async def model_info():
-    """Get information about the loaded model"""
-    if model is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Model not loaded"
-        )
-
+    """Get information about the loaded model and hybrid approach."""
     info = {
-        "model_type": type(model).__name__,
-        "n_features": model.n_features_in_ if hasattr(model, 'n_features_in_') else "unknown",
-        "classes": model.classes_.tolist() if hasattr(model, 'classes_') else [0, 1]
+        "approach": "hybrid",
+        "description": "Rules Engine for deterministic cases + ML Model for ambiguous cases",
+        "rules_engine": {
+            "rules": [
+                "Support Calls >= 6 → churn",
+                "Contract Length == Monthly → churn",
+                "Payment Delay > 20 → churn",
+                f"Total Spend <= {SPEND_THRESHOLD} → churn",
+            ],
+            "coverage": "49.6% of training data",
+            "precision": "100% (by definition — deterministic patterns)",
+        },
+        "ml_model": {
+            "loaded": ml_pipeline is not None,
+            "type": type(ml_pipeline).__name__ if ml_pipeline is not None else None,
+            "trained_on": "222,391 ambiguous rows (14.2% churn rate)",
+        },
+        "version": "3.0.0",
     }
 
-    if hasattr(model, 'n_estimators'):
-        info["n_estimators"] = model.n_estimators
-
-    if hasattr(model, 'max_depth'):
-        info["max_depth"] = model.max_depth
+    if metrics_info:
+        info["training_metrics"] = {
+            "ml_model_on_ambiguous": metrics_info.get("ml_model_metrics_on_ambiguous", {}),
+            "hybrid_on_full_data": metrics_info.get("hybrid_metrics_on_full_data", {}),
+        }
 
     return info
 

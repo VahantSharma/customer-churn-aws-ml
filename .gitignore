@@ -220,6 +220,12 @@ model/*
 *.tfstate
 *.tfstate.*
 
+# Plan files (binary)
+*.tfplan
+
+# Apply output logs
+apply_output.txt
+
 # Crash logs
 crash.log
 crash.*.log
@@ -241,5 +247,13 @@ terraform.rc
 
 # SHAP generated plots
 shap_plots/
+
+# Personal documentation (local only — not pushed to repo)
+ANALYSIS.md
+DEPLOYMENT_GUIDE.md
+explanation.md
+manualsetup.md
+completeProj.md
+interview/
 
 .DS_Store
