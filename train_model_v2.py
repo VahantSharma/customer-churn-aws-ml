@@ -458,7 +458,7 @@ def compute_feature_importance(model, preprocessor):
         feature_names = num_names + cat_names
 
         if isinstance(final_model, StackingClassifier):
-            for name, est in final_model.estimators_:
+            for est in final_model.estimators_:
                 if hasattr(est, "feature_importances_"):
                     importances = est.feature_importances_
                     break

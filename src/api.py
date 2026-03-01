@@ -20,7 +20,6 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, validator
 from typing import List, Dict, Optional
-import numpy as np
 import pandas as pd
 import joblib
 import json
@@ -156,7 +155,7 @@ class ExplainabilityResponse(BaseModel):
 @app.on_event("startup")
 async def load_model():
     """Load trained ML Pipeline and metrics on startup."""
-    global ml_pipeline, metrics_info, SPEND_THRESHOLD
+    global ml_pipeline, metrics_info
 
     model_path = os.environ.get("MODEL_PATH", "model/model.joblib")
     metrics_path = os.environ.get("METRICS_PATH", "model/metrics.json")
@@ -468,9 +467,15 @@ async def explain_prediction(customer: CustomerFeatures):
         for name in feature_names:
             val = float(df[name].iloc[0]) if pd.api.types.is_numeric_dtype(df[name]) else 0
             imp = importance_map.get(name, 0.01)
+            raw_val = df[name].iloc[0]
+            # Convert numpy types to native Python types for JSON serialization
+            if pd.api.types.is_numeric_dtype(df[name]):
+                serializable_val = float(raw_val) if isinstance(raw_val, float) else int(raw_val)
+            else:
+                serializable_val = str(raw_val)
             contributions.append({
                 "feature": name,
-                "value": df[name].iloc[0] if pd.api.types.is_numeric_dtype(df[name]) else str(df[name].iloc[0]),
+                "value": serializable_val,
                 "contribution": float(val * imp),
             })
 

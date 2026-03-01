@@ -4,7 +4,7 @@
 # Author: Vahant
 
 # Stage 1: Builder
-FROM python:3.9-slim AS builder
+FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -25,9 +25,17 @@ RUN pip install --no-cache-dir --user -r requirements-docker.txt
 RUN pip install --no-cache-dir --user -r requirements-api.txt
 
 # Stage 2: Production
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
+
+# Install runtime dependencies needed by LightGBM/XGBoost (OpenMP)
+# libgomp1 is NOT included in python:3.11-slim by default.
+# Without it, `import lightgbm` fails with:
+#   OSError: libgomp.so.1: cannot open shared object file
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
 RUN useradd --create-home --shell /bin/bash appuser
@@ -42,7 +50,7 @@ ENV PATH=/home/appuser/.local/bin:$PATH
 # PYTHONPATH directly tells Python where to find installed packages.
 # PYTHONUSERBASE alone is NOT sufficient — it only tells pip where to install,
 # but Python's site module may not add the directory to sys.path in Docker.
-ENV PYTHONPATH=/home/appuser/.local/lib/python3.9/site-packages
+ENV PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages
 ENV PYTHONUSERBASE=/home/appuser/.local
 
 # Copy application code
