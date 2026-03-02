@@ -1,6 +1,6 @@
 # Makefile for AWS SageMaker Customer Churn Prediction project
 
-.PHONY: help install install-dev clean test format lint notebook setup-aws deploy-model delete-endpoint
+.PHONY: help install install-dev clean test format lint notebook setup-aws deploy-model delete-endpoint infra-up infra-down infra-status
 
 # Default target
 help:
@@ -15,6 +15,11 @@ help:
 	@echo "  setup-aws    - Configure AWS credentials"
 	@echo "  deploy-model - Deploy model to SageMaker (requires trained model)"
 	@echo "  delete-endpoint - Delete SageMaker endpoint"
+	@echo ""
+	@echo "Infrastructure (cost management):"
+	@echo "  infra-up     - Create all AWS resources (terraform apply + restore data)"
+	@echo "  infra-down   - Destroy all AWS resources (backup data + terraform destroy)"
+	@echo "  infra-status - Show running resources and estimated costs"
 
 # Installation
 install:
@@ -93,3 +98,13 @@ env-activate:
 check-structure:
 	@echo "Project structure:"
 	@find . -type f -name "*.py" -o -name "*.ipynb" -o -name "*.md" -o -name "*.txt" | head -20
+
+# Infrastructure lifecycle (cost management)
+infra-up:
+	@bash infra.sh up
+
+infra-down:
+	@bash infra.sh down
+
+infra-status:
+	@bash infra.sh status

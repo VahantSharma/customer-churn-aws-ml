@@ -26,7 +26,8 @@
 # =============================================================================
 
 resource "aws_s3_bucket" "access_logs" {
-  bucket = "${local.name_prefix}-s3-access-logs-${var.aws_account_id}"
+  bucket        = "${local.name_prefix}-s3-access-logs-${var.aws_account_id}"
+  force_destroy = var.force_destroy
 
   tags = merge(local.common_tags, {
     Name    = "${local.name_prefix}-s3-access-logs"
@@ -80,7 +81,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "access_logs" {
 # =============================================================================
 
 resource "aws_s3_bucket" "data" {
-  bucket = "${var.project_name}-data-${var.environment}-${var.aws_account_id}"
+  bucket        = "${var.project_name}-data-${var.environment}-${var.aws_account_id}"
+  force_destroy = var.force_destroy
 
   tags = merge(local.common_tags, {
     Name    = "${local.name_prefix}-data"
@@ -181,7 +183,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "data" {
 # =============================================================================
 
 resource "aws_s3_bucket" "models" {
-  bucket = "${var.project_name}-models-${var.environment}-${var.aws_account_id}"
+  bucket        = "${var.project_name}-models-${var.environment}-${var.aws_account_id}"
+  force_destroy = var.force_destroy
 
   tags = merge(local.common_tags, {
     Name    = "${local.name_prefix}-models"

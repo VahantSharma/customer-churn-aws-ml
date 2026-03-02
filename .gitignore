@@ -248,6 +248,9 @@ terraform.rc
 # SHAP generated plots
 shap_plots/
 
+# S3 data backups (created by infra.sh down)
+backups/
+
 # Personal documentation (local only — not pushed to repo)
 ANALYSIS.md
 DEPLOYMENT_GUIDE.md

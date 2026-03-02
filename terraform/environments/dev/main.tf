@@ -122,6 +122,7 @@ module "s3" {
   environment        = "dev"
   aws_account_id     = data.aws_caller_identity.current.account_id
   enable_versioning  = false    # Save costs in dev
+  force_destroy      = true     # Allow terraform destroy to delete non-empty buckets in dev
   sagemaker_role_arn = module.iam.sagemaker_execution_role_arn
   kms_key_arn        = module.kms.s3_key_arn
 }

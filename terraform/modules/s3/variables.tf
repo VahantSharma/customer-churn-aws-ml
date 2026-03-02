@@ -67,6 +67,12 @@ variable "access_log_expiration_days" {
 # Access Control
 # -----------------------------------------------------------------------------
 
+variable "force_destroy" {
+  description = "Allow Terraform to destroy non-empty S3 buckets. Enable in dev for easy teardown, never in prod."
+  type        = bool
+  default     = false
+}
+
 variable "sagemaker_role_arn" {
   description = "ARN of the SageMaker execution role for bucket policy (empty = no SageMaker access grant)"
   type        = string
