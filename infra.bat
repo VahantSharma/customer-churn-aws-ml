@@ -98,9 +98,33 @@ if not exist "%BACKUP_DIR%\data" mkdir "%BACKUP_DIR%\data"
 if not exist "%BACKUP_DIR%\models" mkdir "%BACKUP_DIR%\models"
 
 echo [INFO]   Syncing s3://%DATA_BUCKET%/ to backups\data\
-aws s3 sync "s3://%DATA_BUCKET%/" "%BACKUP_DIR%\data\" --quiet 2>nul
+aws s3 sync "s3://%DATA_BUCKET%/" "%BACKUP_DIR%\data\"
+if errorlevel 1 (
+    echo [ERROR] Failed to backup data bucket! Aborting to prevent data loss.
+    echo [ERROR] Fix the issue above and re-run: infra down
+    goto :eof
+)
+
 echo [INFO]   Syncing s3://%MODELS_BUCKET%/ to backups\models\
-aws s3 sync "s3://%MODELS_BUCKET%/" "%BACKUP_DIR%\models\" --quiet 2>nul
+aws s3 sync "s3://%MODELS_BUCKET%/" "%BACKUP_DIR%\models\"
+if errorlevel 1 (
+    echo [ERROR] Failed to backup models bucket! Aborting to prevent data loss.
+    echo [ERROR] Fix the issue above and re-run: infra down
+    goto :eof
+)
+
+REM Verify backup is not empty
+set DATA_COUNT=0
+for /f %%a in ('dir /b /a-d "%BACKUP_DIR%\data" 2^>nul ^| find /c /v ""') do set DATA_COUNT=%%a
+if %DATA_COUNT%==0 (
+    echo [WARN] Data backup folder is EMPTY. The bucket may have been empty.
+    set /p CONTINUE_EMPTY="Continue anyway? (yes/no): "
+    if not "!CONTINUE_EMPTY!"=="yes" (
+        echo [WARN] Aborted. Check bucket contents manually:
+        echo         aws s3 ls s3://%DATA_BUCKET%/ --recursive
+        goto :eof
+    )
+)
 echo [INFO]   Backup complete.
 
 REM Stop SageMaker notebook if running

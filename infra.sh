@@ -35,7 +35,7 @@ NC='\033[0m' # No Color
 
 log()  { echo -e "${GREEN}[INFO]${NC} $*"; }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
-err()  { echo -e "${RED}[ERROR]${NC} $*"; }
+error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
 # =============================================================================
 # STATUS — Show what's running
@@ -134,16 +134,40 @@ cmd_down() {
 
     if aws s3 ls "s3://$DATA_BUCKET/" &>/dev/null; then
         log "  Syncing s3://$DATA_BUCKET/ → backups/data/"
-        aws s3 sync "s3://$DATA_BUCKET/" "$BACKUP_DIR/data/" --quiet
-        log "  Data backup complete ($(du -sh "$BACKUP_DIR/data" 2>/dev/null | cut -f1))"
+        if ! aws s3 sync "s3://$DATA_BUCKET/" "$BACKUP_DIR/data/"; then
+            error "  FAILED to backup data bucket! Aborting to prevent data loss."
+            error "  Fix the issue above and re-run: ./infra.sh down"
+            exit 1
+        fi
+        local data_size
+        data_size=$(du -sh "$BACKUP_DIR/data" 2>/dev/null | cut -f1)
+        if [ -z "$(ls -A "$BACKUP_DIR/data" 2>/dev/null)" ]; then
+            warn "  Data backup folder is EMPTY despite bucket existing."
+            read -p "  Continue anyway? (yes/no): " cont
+            [ "$cont" != "yes" ] && exit 1
+        else
+            log "  Data backup complete ($data_size)"
+        fi
     else
         warn "  Data bucket not found or empty — skipping"
     fi
 
     if aws s3 ls "s3://$MODELS_BUCKET/" &>/dev/null; then
         log "  Syncing s3://$MODELS_BUCKET/ → backups/models/"
-        aws s3 sync "s3://$MODELS_BUCKET/" "$BACKUP_DIR/models/" --quiet
-        log "  Models backup complete ($(du -sh "$BACKUP_DIR/models" 2>/dev/null | cut -f1))"
+        if ! aws s3 sync "s3://$MODELS_BUCKET/" "$BACKUP_DIR/models/"; then
+            error "  FAILED to backup models bucket! Aborting to prevent data loss."
+            error "  Fix the issue above and re-run: ./infra.sh down"
+            exit 1
+        fi
+        local models_size
+        models_size=$(du -sh "$BACKUP_DIR/models" 2>/dev/null | cut -f1)
+        if [ -z "$(ls -A "$BACKUP_DIR/models" 2>/dev/null)" ]; then
+            warn "  Models backup folder is EMPTY despite bucket existing."
+            read -p "  Continue anyway? (yes/no): " cont
+            [ "$cont" != "yes" ] && exit 1
+        else
+            log "  Models backup complete ($models_size)"
+        fi
     else
         warn "  Models bucket not found or empty — skipping"
     fi
